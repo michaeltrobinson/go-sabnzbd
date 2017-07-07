@@ -1,5 +1,7 @@
 package sabnzbd
 
+import "net/http"
+
 type Option func(*Sabnzbd) error
 
 func UseHttp() Option {
@@ -58,5 +60,11 @@ func ApikeyAuth(apikey string) Option {
 func NoneAuth() Option {
 	return func(s *Sabnzbd) error {
 		return s.setAuth(noneAuth{})
+	}
+}
+
+func UseRoundTripper(rt http.RoundTripper) Option {
+	return func(s *Sabnzbd) error {
+		return s.setRoundTripper(rt)
 	}
 }

@@ -21,6 +21,7 @@ type Sabnzbd struct {
 	auth     authenticator
 	httpUser string
 	httpPass string
+	rt       http.RoundTripper
 }
 
 func New(options ...Option) (s *Sabnzbd, err error) {
@@ -93,15 +94,33 @@ func (s *Sabnzbd) setAuth(a authenticator) error {
 	return nil
 }
 
+func (s *Sabnzbd) setRoundTripper(rt http.RoundTripper) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rt = rt
+	return nil
+}
+
 type sabnzbdURL struct {
 	*url.URL
-	v         url.Values
-	auth      authenticator
-	transport *http.Transport
+	v    url.Values
+	auth authenticator
+	rt   http.RoundTripper
 }
+
+var (
+	defaultTransport         = &http.Transport{}
+	defaultInsecureTransport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+)
 
 func (s *Sabnzbd) url() *sabnzbdURL {
 	s.mu.RLock()
+	var t http.RoundTripper = defaultTransport
+	if s.rt != nil {
+		t = s.rt
+	}
 	defer s.mu.RUnlock()
 	su := &sabnzbdURL{
 		URL: &url.URL{
@@ -109,8 +128,8 @@ func (s *Sabnzbd) url() *sabnzbdURL {
 			Host:   s.addr,
 			Path:   s.path,
 		},
-		auth:      s.auth,
-		transport: &http.Transport{},
+		auth: s.auth,
+		rt:   t,
 	}
 	if s.https {
 		su.Scheme = "https"
@@ -146,13 +165,11 @@ func (su *sabnzbdURL) String() string {
 }
 
 func (su *sabnzbdURL) Unsecure() {
-	su.transport = &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
+	su.rt = defaultInsecureTransport
 }
 
 func (su *sabnzbdURL) CallJSON(r interface{}) error {
-	httpClient := &http.Client{Transport: su.transport}
+	httpClient := &http.Client{Transport: su.rt}
 	//fmt.Printf("GET URL: %s", su.String())
 	resp, err := httpClient.Get(su.String())
 	if err != nil {
@@ -178,7 +195,7 @@ func (su *sabnzbdURL) CallJSON(r interface{}) error {
 }
 
 func (su *sabnzbdURL) CallJSONMultipart(reader io.Reader, contentType string, r interface{}) error {
-	httpClient := &http.Client{Transport: su.transport}
+	httpClient := &http.Client{Transport: su.rt}
 	//fmt.Printf("POST URL: %s", su.String())
 	resp, err := httpClient.Post(su.String(), contentType, reader)
 	if err != nil {
